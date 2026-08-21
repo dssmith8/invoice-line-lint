@@ -1,0 +1,14 @@
+[project]
+name = "invoice-line-lint"
+version = "0.1.0"
+description = "Audit invoice line item CSV exports for arithmetic and duplicate-id errors"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.scripts]
+invoice-line-lint = "invoice_line_lint.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
