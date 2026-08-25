@@ -72,3 +72,9 @@ disk.
 ## Requirements
 
 Python 3.9 or newer. No third-party dependencies.
+
+## Tests
+
+```
+python -m unittest
+```
