@@ -10,6 +10,18 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 TWO_PLACES = Decimal("0.01")
 
+# Different billing systems export the same data under different headers.
+# Each tuple is checked in order, so the canonical name always wins if a
+# file happens to have both (e.g. "line_total" and a stray "amount" column).
+FIELD_ALIASES = {
+    "line_id": ("line_id", "id", "item_id", "line_item_id"),
+    "description": ("description", "desc", "item", "item_description"),
+    "quantity": ("quantity", "qty"),
+    "unit_price": ("unit_price", "price", "rate", "unit_cost"),
+    "tax_rate": ("tax_rate", "tax", "tax_pct", "tax_percent"),
+    "line_total": ("line_total", "amount", "total", "line_amount"),
+}
+
 
 class ParseError(Exception):
     """A row from the source CSV could not be turned into a LineItem."""
@@ -47,12 +59,37 @@ def _to_decimal(raw: str, field: str) -> Decimal:
         raise ParseError(f"field {field!r} is not a number: {raw!r}")
 
 
+def _normalize_key(key: str) -> str:
+    return key.strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def normalize_row(row: dict) -> dict:
+    """Map a raw CSV row onto the canonical field names in FIELD_ALIASES.
+
+    Header matching is case-insensitive and ignores spaces/hyphens vs
+    underscores. Fields with no recognized header are simply absent from
+    the result, which parse_row treats the same as a missing column.
+    """
+    by_normalized_key = {_normalize_key(key): key for key in row if key is not None}
+    canonical = {}
+    for field, aliases in FIELD_ALIASES.items():
+        for alias in aliases:
+            if alias in by_normalized_key:
+                canonical[field] = row[by_normalized_key[alias]]
+                break
+    return canonical
+
+
 def parse_row(row: dict) -> LineItem:
     """Turn one CSV row (str -> str) into a LineItem.
 
+    Column names are matched against FIELD_ALIASES first, so exports that
+    use e.g. "amount" instead of "line_total" work without configuration.
     Raises ParseError if a required field is missing or not numeric.
     Does not validate the arithmetic between fields; that is check_items's job.
     """
+    row = normalize_row(row)
+
     try:
         line_id = row["line_id"].strip()
     except (KeyError, AttributeError):

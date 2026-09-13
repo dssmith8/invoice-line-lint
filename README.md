@@ -23,6 +23,20 @@ line_id,description,quantity,unit_price,tax_rate,line_total
 
 `tax_rate` is a fraction, so `0.0825` for 8.25%, not `8.25`.
 
+A few common alternate headers are recognized too, since different billing
+systems name these columns differently. Matching is case-insensitive and
+treats spaces/hyphens the same as underscores:
+
+- `line_id`: `id`, `item_id`, `line_item_id`
+- `description`: `desc`, `item`, `item_description`
+- `quantity`: `qty`
+- `unit_price`: `price`, `rate`, `unit_cost`
+- `tax_rate`: `tax`, `tax_pct`, `tax_percent`
+- `line_total`: `amount`, `total`, `line_amount`
+
+If a file happens to have both the canonical column and an alias (e.g. both
+`line_total` and `amount`), the canonical one wins.
+
 Example (`invoices.csv`):
 
 ```

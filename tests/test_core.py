@@ -8,6 +8,7 @@ from invoice_line_lint.core import (
     check_items,
     expected_subtotal,
     expected_total,
+    normalize_row,
     parse_row,
     summarize,
 )
@@ -39,7 +40,47 @@ def make_item(**overrides):
     return LineItem(**fields)
 
 
+class NormalizeRowTests(unittest.TestCase):
+    def test_recognizes_alternate_column_names(self):
+        row = {"ID": "INV-1", "Qty": "10", "Price": "4.50", "Tax": "0.08", "Amount": "48.60"}
+        canonical = normalize_row(row)
+        self.assertEqual(
+            canonical,
+            {
+                "line_id": "INV-1",
+                "quantity": "10",
+                "unit_price": "4.50",
+                "tax_rate": "0.08",
+                "line_total": "48.60",
+            },
+        )
+
+    def test_hyphens_and_spaces_are_treated_as_underscores(self):
+        row = {"line-id": "INV-1", "unit price": "4.50"}
+        canonical = normalize_row(row)
+        self.assertEqual(canonical["unit_price"], "4.50")
+
+    def test_canonical_name_wins_over_alias(self):
+        row = {"line_total": "48.60", "amount": "99.00"}
+        canonical = normalize_row(row)
+        self.assertEqual(canonical["line_total"], "48.60")
+
+    def test_unrecognized_column_is_dropped(self):
+        row = {"line_id": "INV-1", "notes": "handled by Bob"}
+        canonical = normalize_row(row)
+        self.assertNotIn("notes", canonical)
+
+
 class ParseRowTests(unittest.TestCase):
+    def test_parses_a_row_using_alias_column_names(self):
+        row = {"id": "INV-2", "qty": "5", "rate": "2.00", "tax_pct": "0", "total": "10.00"}
+        item = parse_row(row)
+        self.assertEqual(item.line_id, "INV-2")
+        self.assertEqual(item.quantity, Decimal("5"))
+        self.assertEqual(item.unit_price, Decimal("2.00"))
+        self.assertEqual(item.line_total, Decimal("10.00"))
+
+
     def test_parses_a_well_formed_row(self):
         item = parse_row(make_row())
         self.assertEqual(item.line_id, "INV-1")
