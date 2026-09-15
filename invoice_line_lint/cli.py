@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import json
 import sys
 from decimal import Decimal
 
@@ -11,6 +12,25 @@ from invoice_line_lint.core import ParseError, check_items, parse_row, summarize
 def read_rows(path: str) -> list:
     with open(path, newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def build_report(summary, issues, parse_errors) -> dict:
+    # Decimal values go out as strings, not float(), so a total like
+    # 48.60 round-trips exactly instead of becoming 48.6 or 48.599999999999994.
+    return {
+        "ok": not issues and not parse_errors,
+        "summary": {
+            "item_count": summary.item_count,
+            "subtotal": str(summary.subtotal),
+            "tax": str(summary.tax),
+            "total": str(summary.total),
+            "issue_count": summary.issue_count,
+        },
+        "issues": [
+            {"line_id": issue.line_id, "message": issue.message} for issue in issues
+        ],
+        "parse_errors": list(parse_errors),
+    }
 
 
 def format_report(summary, issues, parse_errors) -> str:
@@ -47,6 +67,11 @@ def main(argv=None) -> int:
         default="0.01",
         help="allowed absolute difference between recorded and expected line_total (default: 0.01)",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print the report as JSON on stdout instead of plain text",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -66,7 +91,10 @@ def main(argv=None) -> int:
     issues = check_items(items, tolerance=Decimal(args.tolerance))
     summary = summarize(items, issues)
 
-    print(format_report(summary, issues, parse_errors))
+    if args.json:
+        print(json.dumps(build_report(summary, issues, parse_errors), indent=2))
+    else:
+        print(format_report(summary, issues, parse_errors))
 
     return 1 if issues or parse_errors else 0
 

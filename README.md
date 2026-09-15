@@ -74,6 +74,33 @@ Pass `--tolerance` to change how much rounding drift is allowed (default
 python -m invoice_line_lint.cli invoices.csv --tolerance 0.05
 ```
 
+Pass `--json` for machine-readable output instead of the plain-text report:
+
+```
+python -m invoice_line_lint.cli invoices.csv --json
+```
+
+```json
+{
+  "ok": false,
+  "summary": {
+    "item_count": 3,
+    "subtotal": "117.00",
+    "tax": "9.36",
+    "total": "126.36",
+    "issue_count": 1
+  },
+  "issues": [
+    {"line_id": "INV-001-2", "message": "duplicate line_id 'INV-001-2'"}
+  ],
+  "parse_errors": []
+}
+```
+
+`subtotal`, `tax`, and `total` are strings, not numbers, so exact decimal
+values survive the round trip instead of picking up float rounding error.
+The exit code rules are the same either way.
+
 ## Design
 
 All of the actual checking logic lives in `invoice_line_lint/core.py` as
