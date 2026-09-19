@@ -63,6 +63,18 @@ def _normalize_key(key: str) -> str:
     return key.strip().lower().replace(" ", "_").replace("-", "_")
 
 
+def find_column(row: dict, field: str) -> str:
+    """Return the original header in row that maps to the given canonical field.
+
+    Returns None if no header in row matches any alias for field.
+    """
+    by_normalized_key = {_normalize_key(key): key for key in row if key is not None}
+    for alias in FIELD_ALIASES[field]:
+        if alias in by_normalized_key:
+            return by_normalized_key[alias]
+    return None
+
+
 def normalize_row(row: dict) -> dict:
     """Map a raw CSV row onto the canonical field names in FIELD_ALIASES.
 
@@ -70,13 +82,11 @@ def normalize_row(row: dict) -> dict:
     underscores. Fields with no recognized header are simply absent from
     the result, which parse_row treats the same as a missing column.
     """
-    by_normalized_key = {_normalize_key(key): key for key in row if key is not None}
     canonical = {}
-    for field, aliases in FIELD_ALIASES.items():
-        for alias in aliases:
-            if alias in by_normalized_key:
-                canonical[field] = row[by_normalized_key[alias]]
-                break
+    for field in FIELD_ALIASES:
+        column = find_column(row, field)
+        if column is not None:
+            canonical[field] = row[column]
     return canonical
 
 
@@ -154,6 +164,34 @@ def check_items(items: list, tolerance: Decimal = TWO_PLACES) -> list:
             )
 
     return issues
+
+
+def fixed_rows(rows: list, tolerance: Decimal = TWO_PLACES) -> list:
+    """Return copies of rows with line_total replaced by the expected value.
+
+    Only rows whose line_total is off by more than tolerance are changed, and
+    only the line_total column is touched - other columns, including a
+    duplicated line_id, pass through untouched since there's no way to know
+    which of two duplicate rows is the correct one. Rows that don't parse are
+    also passed through untouched, since there's nothing to correct against.
+    """
+    result = []
+    for row in rows:
+        try:
+            item = parse_row(row)
+        except ParseError:
+            result.append(dict(row))
+            continue
+
+        want = expected_total(item)
+        diff = (item.line_total - want).copy_abs()
+        new_row = dict(row)
+        if diff > tolerance:
+            column = find_column(row, "line_total")
+            if column is not None:
+                new_row[column] = str(want)
+        result.append(new_row)
+    return result
 
 
 def summarize(items: list, issues: list) -> Summary:

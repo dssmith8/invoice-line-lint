@@ -101,6 +101,19 @@ python -m invoice_line_lint.cli invoices.csv --json
 values survive the round trip instead of picking up float rounding error.
 The exit code rules are the same either way.
 
+Pass `--fix OUTPUT_CSV` to write a corrected copy of the file alongside the
+report:
+
+```
+python -m invoice_line_lint.cli invoices.csv --fix invoices.fixed.csv
+```
+
+Only the `line_total` column is touched, and only on rows where it disagrees
+with `quantity * unit_price * (1 + tax_rate)` by more than `--tolerance`.
+Everything else - column order, extra columns, duplicate `line_id` rows - is
+left exactly as it was, since there's no way to tell which of two duplicate
+rows is the correct one from arithmetic alone.
+
 ## Design
 
 All of the actual checking logic lives in `invoice_line_lint/core.py` as

@@ -6,12 +6,26 @@ import json
 import sys
 from decimal import Decimal
 
-from invoice_line_lint.core import ParseError, check_items, parse_row, summarize
+from invoice_line_lint.core import (
+    ParseError,
+    check_items,
+    fixed_rows,
+    parse_row,
+    summarize,
+)
 
 
-def read_rows(path: str) -> list:
+def read_rows(path: str):
     with open(path, newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
+        reader = csv.DictReader(handle)
+        return reader.fieldnames, list(reader)
+
+
+def write_rows(path: str, fieldnames, rows: list) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def build_report(summary, issues, parse_errors) -> dict:
@@ -72,13 +86,21 @@ def main(argv=None) -> int:
         action="store_true",
         help="print the report as JSON on stdout instead of plain text",
     )
+    parser.add_argument(
+        "--fix",
+        metavar="OUTPUT_CSV",
+        help="write a copy of the CSV to OUTPUT_CSV with line_total corrected on rows that "
+        "failed the arithmetic check (duplicate line_id rows are left as-is)",
+    )
     args = parser.parse_args(argv)
 
     try:
-        rows = read_rows(args.csv_path)
+        fieldnames, rows = read_rows(args.csv_path)
     except OSError as exc:
         print(f"could not read {args.csv_path}: {exc}", file=sys.stderr)
         return 2
+
+    tolerance = Decimal(args.tolerance)
 
     items = []
     parse_errors = []
@@ -88,13 +110,21 @@ def main(argv=None) -> int:
         except ParseError as exc:
             parse_errors.append(str(exc))
 
-    issues = check_items(items, tolerance=Decimal(args.tolerance))
+    issues = check_items(items, tolerance=tolerance)
     summary = summarize(items, issues)
 
     if args.json:
         print(json.dumps(build_report(summary, issues, parse_errors), indent=2))
     else:
         print(format_report(summary, issues, parse_errors))
+
+    if args.fix:
+        try:
+            write_rows(args.fix, fieldnames, fixed_rows(rows, tolerance=tolerance))
+        except OSError as exc:
+            print(f"could not write {args.fix}: {exc}", file=sys.stderr)
+            return 2
+        print(f"\nwrote corrected line_total values to {args.fix}")
 
     return 1 if issues or parse_errors else 0
 

@@ -8,6 +8,8 @@ from invoice_line_lint.core import (
     check_items,
     expected_subtotal,
     expected_total,
+    find_column,
+    fixed_rows,
     normalize_row,
     parse_row,
     summarize,
@@ -69,6 +71,20 @@ class NormalizeRowTests(unittest.TestCase):
         row = {"line_id": "INV-1", "notes": "handled by Bob"}
         canonical = normalize_row(row)
         self.assertNotIn("notes", canonical)
+
+
+class FindColumnTests(unittest.TestCase):
+    def test_finds_canonical_header(self):
+        row = {"line_total": "48.60"}
+        self.assertEqual(find_column(row, "line_total"), "line_total")
+
+    def test_finds_alias_header(self):
+        row = {"Amount": "48.60"}
+        self.assertEqual(find_column(row, "line_total"), "Amount")
+
+    def test_returns_none_when_absent(self):
+        row = {"line_id": "INV-1"}
+        self.assertIsNone(find_column(row, "line_total"))
 
 
 class ParseRowTests(unittest.TestCase):
@@ -176,6 +192,45 @@ class CheckItemsTests(unittest.TestCase):
         issues = check_items(items)
         # one duplicate issue, plus a mismatch issue for each occurrence
         self.assertEqual(len(issues), 3)
+
+
+class FixedRowsTests(unittest.TestCase):
+    def test_corrects_mismatched_line_total(self):
+        rows = [make_row(line_total="50.00")]
+        result = fixed_rows(rows)
+        self.assertEqual(result[0]["line_total"], "48.60")
+
+    def test_leaves_correct_row_untouched(self):
+        rows = [make_row()]
+        result = fixed_rows(rows)
+        self.assertEqual(result[0]["line_total"], "48.60")
+
+    def test_within_tolerance_is_untouched(self):
+        rows = [make_row(line_total="48.61")]
+        result = fixed_rows(rows)
+        self.assertEqual(result[0]["line_total"], "48.61")
+
+    def test_corrects_alias_column_in_place(self):
+        row = {"id": "INV-2", "qty": "5", "rate": "2.00", "tax_pct": "0", "total": "9.00"}
+        result = fixed_rows([row])
+        self.assertEqual(result[0]["total"], "10.00")
+        self.assertEqual(result[0]["id"], "INV-2")
+
+    def test_unparseable_row_passes_through_unchanged(self):
+        row = make_row(quantity="ten")
+        result = fixed_rows([row])
+        self.assertEqual(result[0], row)
+
+    def test_duplicate_line_ids_are_both_left_as_is_when_correct(self):
+        rows = [make_row(), make_row()]
+        result = fixed_rows(rows)
+        self.assertEqual(result[0]["line_total"], "48.60")
+        self.assertEqual(result[1]["line_total"], "48.60")
+
+    def test_does_not_mutate_input_rows(self):
+        row = make_row(line_total="50.00")
+        fixed_rows([row])
+        self.assertEqual(row["line_total"], "50.00")
 
 
 class SummarizeTests(unittest.TestCase):
