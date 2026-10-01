@@ -20,6 +20,8 @@ FIELD_ALIASES = {
     "unit_price": ("unit_price", "price", "rate", "unit_cost"),
     "tax_rate": ("tax_rate", "tax", "tax_pct", "tax_percent"),
     "line_total": ("line_total", "amount", "total", "line_amount"),
+    # Optional. Files without it are treated as a single invoice.
+    "invoice_id": ("invoice_id", "invoice", "invoice_number", "invoice_no"),
 }
 
 
@@ -35,6 +37,7 @@ class LineItem:
     unit_price: Decimal
     tax_rate: Decimal
     line_total: Decimal
+    invoice_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,15 @@ class Summary:
     tax: Decimal
     total: Decimal
     issue_count: int
+
+
+@dataclass(frozen=True)
+class InvoiceSummary:
+    invoice_id: str
+    item_count: int
+    subtotal: Decimal
+    tax: Decimal
+    total: Decimal
 
 
 def _to_decimal(raw: str, field: str) -> Decimal:
@@ -108,6 +120,7 @@ def parse_row(row: dict) -> LineItem:
         raise ParseError("row has an empty 'line_id'")
 
     description = row.get("description", "").strip()
+    invoice_id = (row.get("invoice_id") or "").strip()
 
     try:
         quantity = _to_decimal(row["quantity"], "quantity")
@@ -124,6 +137,7 @@ def parse_row(row: dict) -> LineItem:
         unit_price=unit_price,
         tax_rate=tax_rate,
         line_total=line_total,
+        invoice_id=invoice_id,
     )
 
 
@@ -141,15 +155,18 @@ def check_items(items: list, tolerance: Decimal = TWO_PLACES) -> list:
     """Return a list of Issues found across all items.
 
     Checks each item's recorded line_total against quantity * unit_price *
-    (1 + tax_rate), and flags any line_id that appears more than once.
+    (1 + tax_rate), and flags any line_id that appears more than once within
+    the same invoice. Exports that number lines from 1 on every invoice would
+    otherwise be flagged wholesale, so the invoice is part of the key.
     """
     issues = []
     seen_ids = set()
 
     for item in items:
-        if item.line_id in seen_ids:
+        key = (item.invoice_id, item.line_id)
+        if key in seen_ids:
             issues.append(Issue(item.line_id, f"duplicate line_id {item.line_id!r}"))
-        seen_ids.add(item.line_id)
+        seen_ids.add(key)
 
         want = expected_total(item)
         diff = (item.line_total - want).copy_abs()
@@ -191,6 +208,31 @@ def fixed_rows(rows: list, tolerance: Decimal = TWO_PLACES) -> list:
             if column is not None:
                 new_row[column] = str(want)
         result.append(new_row)
+    return result
+
+
+def summarize_by_invoice(items: list) -> list:
+    """Return one InvoiceSummary per distinct invoice_id, in first-seen order.
+
+    Items with no invoice_id are grouped together under "". Callers that only
+    have a single anonymous invoice can skip this and use summarize.
+    """
+    groups = {}
+    for item in items:
+        groups.setdefault(item.invoice_id, []).append(item)
+
+    result = []
+    for invoice_id, group in groups.items():
+        overall = summarize(group, issues=[])
+        result.append(
+            InvoiceSummary(
+                invoice_id=invoice_id,
+                item_count=overall.item_count,
+                subtotal=overall.subtotal,
+                tax=overall.tax,
+                total=overall.total,
+            )
+        )
     return result
 
 

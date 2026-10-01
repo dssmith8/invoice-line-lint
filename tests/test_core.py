@@ -13,6 +13,7 @@ from invoice_line_lint.core import (
     normalize_row,
     parse_row,
     summarize,
+    summarize_by_invoice,
 )
 
 
@@ -259,6 +260,47 @@ class SummarizeTests(unittest.TestCase):
         issues = [Issue("A", "duplicate line_id 'A'")]
         summary = summarize([make_item()], issues=issues)
         self.assertEqual(summary.issue_count, 1)
+
+
+class InvoiceGroupingTests(unittest.TestCase):
+    def test_parse_row_reads_invoice_id_alias(self):
+        item = parse_row(make_row(invoice_number=" A-1 "))
+        self.assertEqual(item.invoice_id, "A-1")
+
+    def test_parse_row_without_invoice_column_leaves_it_empty(self):
+        self.assertEqual(parse_row(make_row()).invoice_id, "")
+
+    def test_same_line_id_in_different_invoices_is_not_a_duplicate(self):
+        items = [make_item(invoice_id="A"), make_item(invoice_id="B")]
+        self.assertEqual(check_items(items), [])
+
+    def test_same_line_id_in_same_invoice_is_a_duplicate(self):
+        items = [make_item(invoice_id="A"), make_item(invoice_id="A")]
+        self.assertEqual(len(check_items(items)), 1)
+
+    def test_summarize_by_invoice_groups_in_first_seen_order(self):
+        items = [
+            make_item(line_id="1", invoice_id="B"),
+            make_item(line_id="1", invoice_id="A"),
+            make_item(
+                line_id="2",
+                invoice_id="B",
+                quantity=Decimal("3"),
+                unit_price=Decimal("12.00"),
+                line_total=Decimal("38.88"),
+            ),
+        ]
+        result = summarize_by_invoice(items)
+        self.assertEqual([r.invoice_id for r in result], ["B", "A"])
+        self.assertEqual(result[0].item_count, 2)
+        self.assertEqual(result[0].subtotal, Decimal("81.00"))
+        self.assertEqual(result[0].total, Decimal("87.48"))
+        self.assertEqual(result[0].tax, Decimal("6.48"))
+        self.assertEqual(result[1].item_count, 1)
+        self.assertEqual(result[1].total, Decimal("48.60"))
+
+    def test_summarize_by_invoice_with_no_items(self):
+        self.assertEqual(summarize_by_invoice([]), [])
 
 
 if __name__ == "__main__":

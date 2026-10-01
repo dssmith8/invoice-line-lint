@@ -37,6 +37,16 @@ treats spaces/hyphens the same as underscores:
 If a file happens to have both the canonical column and an alias (e.g. both
 `line_total` and `amount`), the canonical one wins.
 
+### Multiple invoices in one file
+
+An optional `invoice_id` column (also `invoice`, `invoice_number`,
+`invoice_no`) lets one file hold several invoices. When it is present the
+report adds a per-invoice subtotal, tax and total after the overall figures,
+and the JSON output gets an `invoices` list (empty when the file has no
+invoice column). A `line_id` is only a duplicate if it repeats within the
+same invoice, so exports that restart line numbering at 1 on every invoice
+are not flagged.
+
 Example (`invoices.csv`):
 
 ```

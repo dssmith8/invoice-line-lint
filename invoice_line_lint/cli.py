@@ -12,6 +12,7 @@ from invoice_line_lint.core import (
     fixed_rows,
     parse_row,
     summarize,
+    summarize_by_invoice,
 )
 
 
@@ -28,7 +29,7 @@ def write_rows(path: str, fieldnames, rows: list) -> None:
         writer.writerows(rows)
 
 
-def build_report(summary, issues, parse_errors) -> dict:
+def build_report(summary, issues, parse_errors, invoices=()) -> dict:
     # Decimal values go out as strings, not float(), so a total like
     # 48.60 round-trips exactly instead of becoming 48.6 or 48.599999999999994.
     return {
@@ -40,6 +41,16 @@ def build_report(summary, issues, parse_errors) -> dict:
             "total": str(summary.total),
             "issue_count": summary.issue_count,
         },
+        "invoices": [
+            {
+                "invoice_id": invoice.invoice_id,
+                "item_count": invoice.item_count,
+                "subtotal": str(invoice.subtotal),
+                "tax": str(invoice.tax),
+                "total": str(invoice.total),
+            }
+            for invoice in invoices
+        ],
         "issues": [
             {"line_id": issue.line_id, "message": issue.message} for issue in issues
         ],
@@ -47,12 +58,21 @@ def build_report(summary, issues, parse_errors) -> dict:
     }
 
 
-def format_report(summary, issues, parse_errors) -> str:
+def format_report(summary, issues, parse_errors, invoices=()) -> str:
     lines = []
     lines.append(f"checked {summary.item_count} line item(s)")
     lines.append(f"  subtotal: {summary.subtotal}")
     lines.append(f"  tax:      {summary.tax}")
     lines.append(f"  total:    {summary.total}")
+
+    if invoices:
+        lines.append(f"\nper invoice ({len(invoices)}):")
+        for invoice in invoices:
+            name = invoice.invoice_id or "(no invoice id)"
+            lines.append(
+                f"  {name}: {invoice.item_count} item(s), subtotal {invoice.subtotal}, "
+                f"tax {invoice.tax}, total {invoice.total}"
+            )
 
     if parse_errors:
         lines.append(f"\n{len(parse_errors)} row(s) could not be read:")
@@ -113,10 +133,16 @@ def main(argv=None) -> int:
     issues = check_items(items, tolerance=tolerance)
     summary = summarize(items, issues)
 
+    # A file with no invoice column is one anonymous invoice; a per-invoice
+    # breakdown of it would just repeat the overall totals.
+    invoices = []
+    if any(item.invoice_id for item in items):
+        invoices = summarize_by_invoice(items)
+
     if args.json:
-        print(json.dumps(build_report(summary, issues, parse_errors), indent=2))
+        print(json.dumps(build_report(summary, issues, parse_errors, invoices), indent=2))
     else:
-        print(format_report(summary, issues, parse_errors))
+        print(format_report(summary, issues, parse_errors, invoices))
 
     if args.fix:
         try:
